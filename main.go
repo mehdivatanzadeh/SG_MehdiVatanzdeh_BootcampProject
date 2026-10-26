@@ -2,12 +2,14 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"os"
+	"sort"
 	"strings"
 	"time"
-	"sort"
 )
 
 type Entry struct {
@@ -35,12 +37,12 @@ type incidentKey struct {
 }
 
 type Incident struct {
-	Type      string
-	Severity  string
-	Service   string
-	Count     int
-	FirstSeen time.Time
-	LastSeen  time.Time
+	Type      string    `json:"type"`
+	Severity  string    `json:"severity"`
+	Service   string    `json:"service"`
+	Count     int       `json:"count"`
+	FirstSeen time.Time `json:"first_seen"`
+	LastSeen  time.Time `json:"last_seen"`
 }
 
 type Stats struct {
@@ -51,6 +53,15 @@ type Stats struct {
 	Incidents map[incidentKey]*Incident
 }
 
+type Report struct {
+	ValidEntries   int            `json:"valid_entries"`
+	MalformedLines int            `json:"malformed_lines"`
+	ByLevel        map[string]int `json:"by_level"`
+	ByService      map[string]int `json:"by_service"`
+	Incidents      []Incident     `json:"incidents"`
+}
+
+var levels = []string{"INFO", "WARN", "ERROR", "FATAL"}
 
 func isvalid(level string) bool {
 	return level == "INFO" || level == "WARN" || level == "ERROR" || level == "FATAL"
@@ -85,7 +96,6 @@ func parseLine(line string) (Entry, error) {
 	}
 	return entry, nil
 }
-
 
 func readLogFile(path string, rules []Rule) (Stats, error) {
 	stats := newStats()
@@ -129,18 +139,20 @@ func newStats() Stats {
 	}
 }
 
-func (r FatalRule) Name() string     { return "Fatal error" }
+func (r FatalRule) Name() string { return "Fatal error" }
 
 func (r FatalRule) Severity() string { return "CRITICAL" }
 
 func (r FatalRule) Match(e Entry) bool { return e.Level == "FATAL" }
 
-func (r KeywordRule) Name() string     { return r.name }
+func (r KeywordRule) Name() string { return r.name }
 
 func (r KeywordRule) Severity() string { return r.severity }
 
 func (r KeywordRule) Match(e Entry) bool {
-	if e.Level != "ERROR" && e.Level != "WARN" { return false }
+	if e.Level != "ERROR" && e.Level != "WARN" {
+		return false
+	}
 	return strings.Contains(strings.ToLower(e.Message), r.keyword)
 }
 
@@ -161,8 +173,6 @@ func findRule(rules []Rule, e Entry) Rule {
 	}
 	return nil
 }
-
-
 
 func addIncident(stats *Stats, rule Rule, e Entry) {
 	key := incidentKey{Type: rule.Name(), Service: e.Service}
@@ -224,49 +234,116 @@ func sortedIncidents(stats Stats) []Incident {
 
 	return list
 }
+
+func buildReport(stats Stats) Report {
+	byLevel := make(map[string]int)
+	for _, level := range levels {
+		byLevel[level] = stats.ByLevel[level]
+	}
+
+	byService := make(map[string]int)
+	for name, count := range stats.ByService {
+		byService[name] = count
+	}
+
+	return Report{
+		ValidEntries:   stats.Valid,
+		MalformedLines: stats.Malformed,
+		ByLevel:        byLevel,
+		ByService:      byService,
+		Incidents:      sortedIncidents(stats),
+	}
+}
+
+func writeTextReport(w io.Writer, r Report) error {
+	var sb strings.Builder
+
+	fmt.Fprintln(&sb, "valid entries:", r.ValidEntries)
+	fmt.Fprintln(&sb, "malformed lines:", r.MalformedLines)
+
+	fmt.Fprintln(&sb, "by level:")
+	for _, level := range levels {
+		fmt.Fprintf(&sb, "  %s: %d\n", level, r.ByLevel[level])
+	}
+
+	fmt.Fprintln(&sb, "by service:")
+	names := []string{}
+	for name := range r.ByService {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	if len(names) == 0 {
+		fmt.Fprintln(&sb, "  none")
+	}
+	for _, name := range names {
+		fmt.Fprintf(&sb, "  %s: %d\n", name, r.ByService[name])
+	}
+
+	fmt.Fprintln(&sb, "incidents:")
+	if len(r.Incidents) == 0 {
+		fmt.Fprintln(&sb, "  none")
+	}
+	for _, inc := range r.Incidents {
+		fmt.Fprintf(&sb, "  [%s] %s | service=%s | count=%d | %s -> %s\n",
+			inc.Severity, inc.Type, inc.Service, inc.Count,
+			inc.FirstSeen.Format(time.RFC3339), inc.LastSeen.Format(time.RFC3339))
+	}
+
+	_, err := io.WriteString(w, sb.String())
+	return err
+}
+
+func writeJSONFile(path string, r Report) error {
+	data, err := json.MarshalIndent(r, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+
+	file, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+
+	_, err = file.Write(data)
+	if err != nil {
+		file.Close()
+		return err
+	}
+
+	return file.Close()
+}
+
 func main() {
 	outputPath := flag.String("o", "", "write JSON report to this file")
 	flag.Parse()
 
 	if flag.NArg() != 1 {
-		fmt.Fprintln(os.Stderr, "the foramt: [-o report.json] <logfile>")
+		fmt.Fprintln(os.Stderr, "usage: ghostops [-o report.json] <logfile>")
 		os.Exit(2)
 	}
 	inputPath := flag.Arg(0)
 
-		stats, err := readLogFile(inputPath, defaultRules())
+	stats, err := readLogFile(inputPath, defaultRules())
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
 
-	fmt.Println("valid entries:", stats.Valid)
-	fmt.Println("malformed lines:", stats.Malformed)
+	report := buildReport(stats)
 
-	fmt.Println("by level:")
-	levels := []string{"INFO", "WARN", "ERROR", "FATAL"}
-	for _, level := range levels {
-		fmt.Printf("  %s: %d\n", level, stats.ByLevel[level])
+	err = writeTextReport(os.Stdout, report)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error: cannot print report:", err)
+		os.Exit(1)
 	}
 
-	fmt.Println("by service:")
-	names := []string{}
-	for name := range stats.ByService {
-		names = append(names, name)
+	if *outputPath != "" {
+		err = writeJSONFile(*outputPath, report)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "error: cannot write json file:", err)
+			os.Exit(1)
+		}
+		fmt.Println("json saved to", *outputPath)
 	}
-	sort.Strings(names)
-	for _, name := range names {
-		fmt.Printf("  %s: %d\n", name, stats.ByService[name])
-	}
-		fmt.Println("incidents:")
-	incidents := sortedIncidents(stats)
-	if len(incidents) == 0 {
-		fmt.Println("  none")
-	}
-	for _, inc := range incidents {
-		fmt.Printf("  [%s] %s | service=%s | count=%d | %s -> %s\n",
-			inc.Severity, inc.Type, inc.Service, inc.Count,
-			inc.FirstSeen.Format(time.RFC3339), inc.LastSeen.Format(time.RFC3339))
-	}
-	_ = outputPath 
 }

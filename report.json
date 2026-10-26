@@ -1,0 +1,57 @@
+{
+  "valid_entries": 11,
+  "malformed_lines": 3,
+  "by_level": {
+    "ERROR": 3,
+    "FATAL": 2,
+    "INFO": 2,
+    "WARN": 4
+  },
+  "by_service": {
+    "api-gateway": 5,
+    "auth-service": 4,
+    "payment-service": 2
+  },
+  "incidents": [
+    {
+      "type": "Fatal error",
+      "severity": "CRITICAL",
+      "service": "payment-service",
+      "count": 1,
+      "first_seen": "2026-10-26T10:03:30Z",
+      "last_seen": "2026-10-26T10:03:30Z"
+    },
+    {
+      "type": "Fatal error",
+      "severity": "CRITICAL",
+      "service": "auth-service",
+      "count": 1,
+      "first_seen": "2026-10-26T10:08:00Z",
+      "last_seen": "2026-10-26T10:08:00Z"
+    },
+    {
+      "type": "Timeout",
+      "severity": "HIGH",
+      "service": "auth-service",
+      "count": 2,
+      "first_seen": "2026-10-26T10:01:10Z",
+      "last_seen": "2026-10-26T10:07:00Z"
+    },
+    {
+      "type": "Connection failure",
+      "severity": "HIGH",
+      "service": "payment-service",
+      "count": 1,
+      "first_seen": "2026-10-26T10:02:00Z",
+      "last_seen": "2026-10-26T10:02:00Z"
+    },
+    {
+      "type": "Retry storm",
+      "severity": "MEDIUM",
+      "service": "api-gateway",
+      "count": 3,
+      "first_seen": "2026-10-26T10:06:00Z",
+      "last_seen": "2026-10-26T10:06:10Z"
+    }
+  ]
+}
