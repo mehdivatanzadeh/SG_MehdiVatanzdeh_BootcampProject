@@ -7,3 +7,8 @@ this line is broken
 
 2026-10-26T10:04:00Z DEBUG api-gateway unknown level
 2026-10-26T10:05:00Z INFO api-gateway Request ok
+2026-10-26T10:06:00Z WARN api-gateway Retry attempt 1 for upstream
+2026-10-26T10:06:05Z WARN api-gateway Retry attempt 2 for upstream
+2026-10-26T10:06:10Z WARN api-gateway Retry attempt 3 for upstream
+2026-10-26T10:07:00Z ERROR auth-service Database connection timeout
+2026-10-26T10:08:00Z FATAL auth-service Request timeout caused crash
